@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             endpoint: "https://api.example.com/migrate".to_string(),
             api_key: "your_api_key_here".to_string(),
             merchant_id: "merchant_123".to_string(),
-            merchant_connector_id: Some("mca_456".to_string()),
+            merchant_connector_ids: Some("mca_456".to_string()),
             timeout_secs: 30,
         },
         batch_config: BatchConfig {
@@ -27,6 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             batch_response_dir: PathBuf::from("output/batch_responses"),
             output_fields: None,
         },
+        enrichment: None,
     };
 
     println!("Starting migration pipeline...");

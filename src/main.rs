@@ -86,30 +86,71 @@ async fn route_command(command: Command, is_updatus: bool) -> Result<(), Box<dyn
 }
 
 async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-
-    println!("🚀 Migratus - Data Migration Tool");
-    println!("==================================\n");
-
-    // Load configuration
-    println!("📄 Loading configuration from: {}", config_path.display());
+    // Load configuration first to detect flow type
     let config_json = fs::read_to_string(config_path)
         .map_err(|e| format!("Failed to read config file: {}", e))?;
 
     let config: MigrationConfig =
         serde_json::from_str(&config_json).map_err(|e| format!("Failed to parse config: {}", e))?;
 
-    println!("✓ Configuration loaded successfully\n");
+    // Determine if this is an update flow
+    let is_update_flow = matches!(config.flow, migratus::domain::config::MigrationFlow::Update);
+    
+    // Display appropriate header
+    if is_update_flow {
+        println!("🔄 Updatus - Payment Method Update Tool");
+    } else {
+        println!("🚀 Migratus - Data Migration Tool");
+    }
+    println!("==================================\n");
+
+    // Show confirmation prompt
+    println!("⚠️  WARNING: Full Pipeline Execution");
+    println!("=====================================");
+    println!("This will execute all stages in a single run:");
+    println!("  1. LOAD");
+    println!("  2. VALIDATE");
+    println!("  3. ENRICH");
+    println!("  4. BATCH");
+    if is_update_flow {
+        println!("  5. UPDATE");
+    } else {
+        println!("  5. MIGRATE");
+    }
+    println!("  6. COMPLETE");
+    println!();
+    println!("Configuration: {}", config_path.display());
+    println!("API Endpoint: {}", config.api_config.endpoint);
+    println!();
+    println!("Type 'CONTINUE' to proceed or Ctrl+C to cancel:");
+    println!();
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+
+    if input.trim() != "CONTINUE" {
+        println!("❌ Pipeline execution cancelled.");
+        return Ok(());
+    }
+
+    println!();
+    println!("✓ Proceeding with full pipeline execution...\n");
 
     // Display configuration summary
-    println!("📊 Migration Configuration:");
+    println!("📊 Configuration Summary:");
+    println!("  - Flow type: {}", if is_update_flow { "Update" } else { "Migration" });
     println!("  - Data source: {:?}", config.data_source);
     println!("  - Batch size: {}", config.batch_config.batch_size);
     println!("  - Output dir: {:?}", config.output_config.output_dir);
     println!("  - API endpoint: {}", config.api_config.endpoint);
     println!();
 
-    // Initialize migration
-    println!("🔧 Initializing migration pipeline...");
+    // Initialize pipeline
+    if is_update_flow {
+        println!("🔧 Initializing update pipeline...");
+    } else {
+        println!("🔧 Initializing migration pipeline...");
+    }
     let builder = MigrationBuilder::new(config);
     let decision = builder.initialize()?;
     println!("✓ Initialization complete\n");
@@ -157,14 +198,22 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
     let migrated = batched.batch().await?;
     println!("✓ Batching complete\n");
 
-    // Step 5: Migrate
-    println!("🚀 Step 5/7: Running migration...");
+    // Step 5: Migrate or Update
+    if is_update_flow {
+        println!("🔄 Step 5/7: Running updates...");
+    } else {
+        println!("🚀 Step 5/7: Running migration...");
+    }
     println!(
         "  ⚠️  Making API calls to: {}",
         migrated.config.api_config.endpoint
     );
     let completed = migrated.migrate().await?;
-    println!("✓ Migration complete\n");
+    if is_update_flow {
+        println!("✓ Updates complete\n");
+    } else {
+        println!("✓ Migration complete\n");
+    }
 
     // Step 6: Generate outputs
     println!("📝 Step 6/7: Generating output files...");
@@ -172,28 +221,53 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
     println!("✓ Output files generated\n");
 
     // Step 7: Display summary
-    println!("📊 Step 7/7: Migration Summary");
+    if is_update_flow {
+        println!("📊 Step 7/7: Update Summary");
+    } else {
+        println!("📊 Step 7/7: Migration Summary");
+    }
     println!("================================");
     println!(
         "Total input records:       {}",
         output.summary.total_input_records
     );
-    println!(
-        "Valid for migration:       {}",
-        output.summary.valid_for_migration
-    );
-    println!(
-        "Invalid (pre-migration):   {}",
-        output.summary.invalid_pre_migration
-    );
-    println!(
-        "Successful migrations:     {}",
-        output.summary.successful_migrations
-    );
-    println!(
-        "Failed migrations:         {}",
-        output.summary.failed_migrations
-    );
+    
+    if is_update_flow {
+        println!(
+            "Valid for update:          {}",
+            output.summary.valid_for_migration
+        );
+        println!(
+            "Invalid (pre-update):      {}",
+            output.summary.invalid_pre_migration
+        );
+        println!(
+            "Successful updates:        {}",
+            output.summary.successful_migrations
+        );
+        println!(
+            "Failed updates:            {}",
+            output.summary.failed_migrations
+        );
+    } else {
+        println!(
+            "Valid for migration:       {}",
+            output.summary.valid_for_migration
+        );
+        println!(
+            "Invalid (pre-migration):   {}",
+            output.summary.invalid_pre_migration
+        );
+        println!(
+            "Successful migrations:     {}",
+            output.summary.successful_migrations
+        );
+        println!(
+            "Failed migrations:         {}",
+            output.summary.failed_migrations
+        );
+    }
+    
     println!(
         "Total output records:      {}",
         output.summary.total_output_records
@@ -212,14 +286,27 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
 
     // Display output files
     println!("📁 Output Files:");
-    println!(
-        "  ✓ {}/successful_migrations.csv ({} records)",
-        output.summary.total_output_records, output.summary.successful_migrations
-    );
-    println!(
-        "  ✓ {}/failed_migrations.csv ({} records)",
-        output.summary.total_output_records, output.summary.failed_migrations
-    );
+    
+    if is_update_flow {
+        println!(
+            "  ✓ {}/successful_updates.csv ({} records)",
+            output.summary.total_output_records, output.summary.successful_migrations
+        );
+        println!(
+            "  ✓ {}/failed_updates.csv ({} records)",
+            output.summary.total_output_records, output.summary.failed_migrations
+        );
+    } else {
+        println!(
+            "  ✓ {}/successful_migrations.csv ({} records)",
+            output.summary.total_output_records, output.summary.successful_migrations
+        );
+        println!(
+            "  ✓ {}/failed_migrations.csv ({} records)",
+            output.summary.total_output_records, output.summary.failed_migrations
+        );
+    }
+    
     println!(
         "  ✓ {}/invalid_records.csv ({} records)",
         output.summary.total_output_records, output.summary.invalid_pre_migration
@@ -230,22 +317,11 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
     );
     println!();
 
-    println!("✨ Migration completed successfully!");
+    if is_update_flow {
+        println!("✨ Update pipeline completed successfully!");
+    } else {
+        println!("✨ Migration completed successfully!");
+    }
 
     Ok(())
-}
-
-fn print_usage() {
-    println!("Migratus - Data Migration Tool");
-    println!();
-    println!("USAGE:");
-    println!("    migratus <config.json>");
-    println!();
-    println!("ARGUMENTS:");
-    println!("    <config.json>    Path to migration configuration file");
-    println!();
-    println!("EXAMPLE:");
-    println!("    migratus config/migration.json");
-    println!();
-    println!("For more information, see: https://github.com/yourorg/migratus");
 }

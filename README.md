@@ -1,276 +1,126 @@
 # Migratus
 
-A type-safe, state-machine-based data migration tool for HyperSwitch payment method migrations.
+A robust, stage-by-stage data migration and update tool for HyperSwitch payment method operations.
 
-## Overview
+## 🎯 Overview
 
-Migratus provides a robust pipeline for migrating payment method data with:
-- **Type-safe state machine**: Compile-time guarantees for correct state transitions
-- **Flexible data sources**: Support for merged or separate customer/payment files
-- **Comprehensive validation**: Flow-based validation with detailed error tracking
-- **Batch processing**: Configurable batch sizes with API integration
-- **Complete audit trail**: Invalid records tracked at each stage, JSON responses stored
+Migratus provides two complete pipelines for payment method operations:
+- **Migration Flow** (`migratus`): Migrate payment methods from external systems
+- **Update Flow** (`updatus`): Update existing payment methods in HyperSwitch
 
-## Architecture
+### Key Features
 
-### State Machine Flow
+✅ **Stage-by-Stage Execution** - Run the entire pipeline or individual stages  
+✅ **Resume Capabilities** - Auto-resume from failures or run specific batches  
+✅ **Type-Safe Operations** - Compile-time safety with Rust's type system  
+✅ **Flexible Data Sources** - Support for merged or separate customer/payment files  
+✅ **Comprehensive Validation** - Flow-based validation with detailed error tracking  
+✅ **Batch Processing** - Configurable batch sizes with progress tracking  
+✅ **Complete Audit Trail** - All responses and errors tracked with metadata  
+✅ **Config Hash Verification** - Prevents inconsistent pipeline runs  
 
-```
-Uninitialized
-    ↓ initialize()
-    ├─→ MergeRequired → merge() → Validated
-    └─→ MergeSkipped → load_merged_data() → Validated
-                                                ↓ validate()
-                                            Enriched
-                                                ↓ enrich()
-                                            Batched
-                                                ↓ batch()
-                                            Migrated
-                                                ↓ migrate()
-                                            Completed
-                                                ↓ complete()
-                                            FinalOutput
-```
+## 🚀 Quick Start
 
-### Key Components
-
-**Domain Types** (`src/domain/`)
-- `types.rs`: Wrapper types (CustomerId, CardNumber, etc.)
-- `config.rs`: Configuration structures
-- `records.rs`: Record types for each stage
-
-**State Implementations** (`src/states/`)
-- Each state has its own module with transition logic
-- Type-safe transitions prevent invalid state changes
-
-**Operations** (`src/operations/`)
-- `csv_reader.rs`: CSV file parsing
-- `csv_writer.rs`: Output file generation
-- `merger.rs`: Customer/payment data merging
-- `validator.rs`: Record validation
-- `api_client.rs`: Migration API integration
-
-## Usage
-
-### Basic Example
-
-```rust
-use migratus::domain::config::*;
-use migratus::machine::builder::MigrationBuilder;
-use std::path::PathBuf;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = MigrationConfig {
-        flow: MigrationFlow::RawCard {
-            required_fields: vec![
-                "customer_id".to_string(),
-                "raw_card_number".to_string(),
-                "card_expiry_month".to_string(),
-                "card_expiry_year".to_string(),
-            ],
-            optional_fields: vec!["name".to_string(), "email".to_string()],
-        },
-        data_source: DataSource::Merged {
-            path: PathBuf::from("input/data.csv"),
-        },
-        api_config: ApiConfig {
-            endpoint: "https://api.example.com/migrate".to_string(),
-            api_key: "your_api_key".to_string(),
-            merchant_id: "merchant_123".to_string(),
-            merchant_connector_id: Some("mca_456".to_string()),
-            timeout_secs: 30,
-        },
-        batch_config: BatchConfig {
-            batch_size: 100,
-            resume_from_batch: None,
-            resume_from_state: None,
-        },
-        output_config: OutputConfig {
-            output_dir: PathBuf::from("output"),
-            batch_response_dir: PathBuf::from("output/responses"),
-        },
-    };
-
-    let builder = MigrationBuilder::new(config);
-    let decision = builder.initialize()?;
-
-    let validated = match decision {
-        BranchDecision::RequiresMerge(b) => b.merge().await?,
-        BranchDecision::SkipMerge(b) => b.load_merged_data().await?,
-    };
-
-    let enriched = validated.validate().await?;
-    
-    let mut columns = EnrichmentColumns::new();
-    columns.add("merchant_id".to_string(), "merchant_123".to_string());
-    
-    let batched = enriched.enrich(columns).await?;
-    let migrated = batched.batch().await?;
-    let completed = migrated.migrate().await?;
-    let output = completed.complete().await?;
-
-    println!("Migration complete!");
-    println!("Successful: {}", output.summary.successful_migrations);
-    println!("Failed: {}", output.summary.failed_migrations);
-
-    Ok(())
-}
-```
-
-## Configuration
-
-### Migration Flows
-
-**RawCard**: Migrate raw card data (fields hardcoded in binary)
-```rust
-MigrationFlow::RawCard  // No fields needed!
-```
-
-**PSPToken**: Migrate PSP tokens (fields hardcoded in binary)
-```rust
-MigrationFlow::PspToken  // No fields needed!
-```
-
-**Custom**: Custom migration flow (specify fields using MigrationField enum)
-```rust
-use migratus::domain::migration_field::MigrationField as MF;
-
-MigrationFlow::Custom {
-    required_fields: vec![
-        MF::CustomerId,
-        MF::CardNumberMasked,
-        MF::CardExpiryMonth,
-        MF::CardExpiryYear,
-    ],
-    optional_fields: vec![
-        MF::Name,
-        MF::Email,
-        MF::BillingAddressLine1,
-    ],
-}
-```
-
-### Output Field Customization
-
-```rust
-use migratus::domain::migration_field::MigrationField as MF;
-
-OutputConfig {
-    output_dir: PathBuf::from("output"),
-    batch_response_dir: PathBuf::from("output/responses"),
-    output_fields: Some(vec![
-        MF::CustomerId,
-        MF::PaymentMethodId,
-        MF::CardNumberMasked,
-        MF::MigrationStatus,
-    ]),
-}
-```
-
-If `output_fields` is `None`, all fields are included in default format.
-
-### Data Sources
-
-**Merged**: Single CSV file
-```rust
-DataSource::Merged {
-    path: PathBuf::from("data.csv"),
-}
-```
-
-**Separate**: Customer + Payment files
-```rust
-DataSource::Separate {
-    customer: PathBuf::from("customers.csv"),
-    payment: PathBuf::from("payments.csv"),
-}
-```
-
-## Output Files
-
-Migratus generates three CSV files:
-
-1. **successful_migrations.csv**: Successfully migrated records with payment_method_id
-2. **failed_migrations.csv**: Failed migrations with error reasons
-3. **invalid_records.csv**: Invalid records from all stages (merge, validation)
-
-Plus JSON responses for each batch in `batch_responses/`.
-
-## Features
-
-### Core Features
-- ✅ **Type-safe state machine**: Compile-time safety for state transitions
-- ✅ **Flexible data sources**: Merged or separate customer/payment files
-- ✅ **Flow-based validation**: RawCard, PSPToken, Custom flows
-- ✅ **Record count invariant**: Ensures no data loss
-- ✅ **Invalid record tracking**: Captured at each stage with reasons
-- ✅ **Configurable batching**: First batch (10 records), then configurable size
-- ✅ **API integration**: Timeout handling, retry support
-- ✅ **Comprehensive error handling**: Detailed error types and messages
-- ✅ **Complete audit trail**: JSON responses with headers stored per batch
-
-### Recent Enhancements (Oct 2025)
-
-#### MigrationField - Single Source of Truth
-- **Zero String Duplication**: All 42 field definitions in one enum
-- **Type-Safe Throughout**: `Vec<MigrationField>` instead of `Vec<String>`
-- **Simplified Configs**: RawCard/PspToken flows don't need field lists
-- **Helper Methods**: Type-safe field access via `get_field()` and `has_field()`
-- **Production Grade**: Clean, minimal, maintainable code
-
-#### Enhanced Validation
-- **Duplicate Detection**: Detects customer_id + card_number_masked duplicates
-- **All Duplicates Marked**: First occurrence kept, rest marked invalid
-- **Output Field Validation**: Custom output fields validated against CSV headers
-
-#### Customizable Output
-- **Custom Output Fields**: Select which fields to include in output CSV
-- **42 Predefined Fields**: All API and CSV fields available
-- **Custom Fields**: Support for unknown CSV fields via `Custom(String)`
-- **Type-Safe Selection**: Uses MigrationField enum for field selection
-
-## Error Handling
-
-All errors are captured in the `MigrationError` enum:
-- Configuration errors
-- File I/O errors
-- CSV parsing errors
-- Validation errors
-- API errors
-- Network errors
-- Timeout errors
-
-Invalid records are tracked with:
-- Line number
-- Original data
-- Failure reason
-- Stage where failure occurred
-
-## CLI Usage
-
-### Building the Binary
+### Installation
 
 ```bash
-# Development build
-cargo build
-
-# Release build (optimized)
+# Build both binaries
 cargo build --release
+
+# Binaries will be in target/release/
+# - migratus (for migrations)
+# - updatus (for updates)
 ```
 
-### Running Migrations
+### Migration Flow - Quick Example
 
 ```bash
-# Using the binary
-./target/release/migratus path/to/config.json
+# Run complete migration pipeline
+migratus run config/migration.json
 
-# Or install globally
-cargo install --path .
-migratus config.json
+# Or run stage-by-stage
+migratus load config/migration.json
+migratus validate config/migration.json
+migratus enrich config/migration.json
+migratus batch config/migration.json
+migratus migrate config/migration.json --count 10
+migratus complete config/migration.json
+
+# Check status anytime
+migratus status config/migration.json
 ```
 
-### Configuration File Format
+### Update Flow - Quick Example
+
+```bash
+# Run complete update pipeline
+updatus run config/update.json
+
+# Or run stage-by-stage
+updatus load config/update.json
+updatus validate config/update.json
+updatus enrich config/update.json
+updatus batch config/update.json
+updatus update config/update.json --count 10
+updatus complete config/update.json
+
+# Check status anytime
+updatus status config/update.json
+```
+
+## 📋 Pipeline Stages
+
+Both flows follow the same 6-stage pipeline:
+
+1. **LOAD** - Load and merge input data
+2. **VALIDATE** - Validate and filter records (duplicates, required fields)
+3. **ENRICH** - Add additional columns (e.g., merchant_id, timestamps)
+4. **BATCH** - Split into manageable CSV batches
+5. **MIGRATE/UPDATE** - Execute API calls with resume support
+6. **COMPLETE** - Generate final output CSVs and summary
+
+## 🎛️ CLI Commands
+
+### Common Commands (Both Flows)
+
+```bash
+# Stage-by-stage execution
+<binary> load <config>         # Load/merge data
+<binary> validate <config>     # Validate records
+<binary> enrich <config>       # Add enrichment columns
+<binary> batch <config>        # Create batches
+<binary> complete <config>     # Generate final outputs
+<binary> status <config>       # Show pipeline status
+
+# Full pipeline execution
+<binary> run <config>          # Run all stages
+
+# Migration-specific
+migratus migrate <config> [OPTIONS]
+
+# Update-specific
+updatus update <config> [OPTIONS]
+```
+
+### Migrate/Update Command Options
+
+```bash
+# Resume from specific batch
+migratus migrate config.json --from-batch 5
+
+# Process limited number of batches
+migratus migrate config.json --count 10
+
+# Process all remaining batches
+migratus migrate config.json --all
+
+# Force run despite config hash mismatch
+migratus migrate config.json --force
+```
+
+## ⚙️ Configuration
+
+### Minimal Migration Config
 
 ```json
 {
@@ -284,86 +134,305 @@ migratus config.json
   "api_config": {
     "endpoint": "https://api.hyperswitch.io/payment_methods/migrate-batch",
     "api_key": "YOUR_API_KEY",
-    "merchant_id": "YOUR_MERCHANT_ID",
-    "merchant_connector_id": "YOUR_MCA_ID",
+    "merchant_id": "merchant_123",
+    "merchant_connector_ids": ["mca_456"],
     "timeout_secs": 300
   },
   "batch_config": {
-    "batch_size": 200,
-    "resume_from_batch": null
+    "batch_size": 100
   },
   "output_config": {
+    "output_dir": "output"
+  }
+}
+```
+
+### Minimal Update Config
+
+```json
+{
+  "flow": {
+    "type": "update"
+  },
+  "data_source": {
+    "type": "merged",
+    "path": "input/payment_methods.csv"
+  },
+  "api_config": {
+    "endpoint": "https://api.hyperswitch.io/payment_methods/update-batch",
+    "api_key": "YOUR_API_KEY",
+    "merchant_id": "merchant_123",
+    "merchant_connector_ids": ["mca_456"],
+    "timeout_secs": 300
+  },
+  "batch_config": {
+    "batch_size": 100
+  },
+  "output_config": {
+    "output_dir": "output"
+  }
+}
+```
+
+## 📤 Output Files
+
+### Migration Flow
+
+- `merged_records.json` - Loaded data with metadata
+- `validated_records.json` - Valid records after validation
+- `enriched_records.json` - Records with enrichment columns
+- `batches/batch_*.csv` - Numbered batch files
+- `batch_responses/batch_*.json` - API responses with headers
+- `successful_migrations.csv` - Successfully migrated records
+- `failed_migrations.csv` - Failed migrations with error details
+- `invalid_records.csv` - Invalid records from all stages
+- `summary.json` - Final statistics
+
+### Update Flow
+
+Same structure, but with:
+- `successful_updates.csv` instead of successful_migrations.csv
+- `failed_updates.csv` instead of failed_migrations.csv
+
+## 🔄 Resume Capabilities
+
+### Automatic Resume
+
+```bash
+# Automatically resumes from last completed batch
+migratus migrate config.json
+```
+
+### Manual Resume
+
+```bash
+# Resume from specific batch
+migratus migrate config.json --from-batch 25
+
+# Process next 10 batches
+migratus migrate config.json --from-batch 25 --count 10
+
+# Process all remaining
+migratus migrate config.json --all
+```
+
+### Error Recovery
+
+When a batch fails:
+```
+❌ Batch 15 failed with status 400: Invalid card data
+   
+⚠️  Migration halted. Fix the issue and retry with:
+  migratus migrate config.json --from-batch 15
+```
+
+## 📊 Status Monitoring
+
+```bash
+migratus status config.json
+```
+
+Output:
+```
+📊 Pipeline Status
+==================
+
+Current Stage: MIGRATE
+
+Progress:
+  ✓ LOAD - 1000 records
+  ✓ VALIDATE - 950 valid
+  ✓ ENRICH
+  ✓ BATCH - 10 batches created
+  ⏳ MIGRATE - 5/10 batches migrated (50%)
+  ⏸ COMPLETE
+
+Next Action:
+  migratus migrate config.json
+```
+
+## 🎭 Migration Flows
+
+### RawCard Flow
+Migrate raw card data from external systems:
+```json
+{
+  "flow": {
+    "type": "raw_card"
+  }
+}
+```
+
+**Required Fields**: customer_id, raw_card_number, card_expiry_month, card_expiry_year  
+**Optional Fields**: name, email, billing address fields, etc.
+
+### PSP Token Flow
+Migrate PSP tokens:
+```json
+{
+  "flow": {
+    "type": "psp_token"
+  }
+}
+```
+
+**Required Fields**: customer_id, payment_instrument_id, card_number_masked, card_expiry_month, card_expiry_year  
+**Optional Fields**: connector_customer_id, etc.
+
+### Update Flow
+Update existing payment methods:
+```json
+{
+  "flow": {
+    "type": "update"
+  }
+}
+```
+
+**Required Fields**: payment_method_id, any fields to update
+
+### Custom Flow
+Define your own required/optional fields:
+```json
+{
+  "flow": {
+    "type": "custom",
+    "required_fields": ["customer_id", "card_number_masked"],
+    "optional_fields": ["email", "name"]
+  }
+}
+```
+
+## 🛠️ Advanced Features
+
+### Data Sources
+
+**Merged Data** (single CSV):
+```json
+{
+  "data_source": {
+    "type": "merged",
+    "path": "data.csv"
+  }
+}
+```
+
+**Separate Files** (auto-merge):
+```json
+{
+  "data_source": {
+    "type": "separate",
+    "customer": "customers.csv",
+    "payment": "payments.csv",
+    "merge_on": "customer_id"
+  }
+}
+```
+
+### Enrichment
+
+Add columns to all records:
+```json
+{
+  "enrichment": {
+    "merchant_id": "merchant_123",
+    "source_system": "legacy_psp",
+    "migration_date": "2025-01-15"
+  }
+}
+```
+
+### Custom Output Fields
+
+Select specific fields for output CSV:
+```json
+{
+  "output_config": {
     "output_dir": "output",
-    "batch_response_dir": "output/batch_responses",
     "output_fields": [
       "customer_id",
       "payment_method_id",
       "card_number_masked",
-      "migration_status"
+      "migration_status",
+      "card_migrated"
     ]
   }
 }
 ```
 
-## Testing
+### Force Flags
 
-### Test Scenarios
-
-The `test_scenarios/` directory contains 5 comprehensive test scenarios:
-
-1. **Custom + Separate**: Custom validation with separate files
-2. **Raw Card + Separate**: Raw card migration with separate files
-3. **Raw Card + Merged**: Raw card migration with pre-merged data
-4. **PSP Token + Separate**: PSP token migration with separate files
-5. **PSP Token + Merged**: PSP token migration with pre-merged data
-
-Run a test scenario:
+Override safety checks when needed:
 ```bash
-cargo run --release -- test_scenarios/1_custom_separate/config.json
+# Ignore config hash mismatch
+migratus validate config.json --force
+migratus migrate config.json --force
 ```
 
-See `test_scenarios/README.md` for detailed documentation.
+## 📚 Documentation
 
-### API Schema Reference
+- **[Comprehensive Usage Guide](docs/USAGE.md)** - Detailed documentation for all features
+- **[Configuration Reference](docs/USAGE.md#configuration)** - Complete config file guide
+- **[API Integration](docs/USAGE.md#api-integration)** - API endpoint details
+- **[Troubleshooting](docs/USAGE.md#troubleshooting)** - Common issues and solutions
 
-**Required Fields (All Flows)**:
-- `customer_id`
-- `card_expiry_month`
-- `card_expiry_year`
-
-**RawCard Flow**:
-- `raw_card_number` (required)
-- `card_scheme` (optional)
-
-**PspToken Flow**:
-- `payment_instrument_id` (required)
-- `card_number_masked` (required)
-- `connector_customer_id` (optional)
-
-**All 42 Available Fields**: See `MigrationField` enum in `src/domain/migration_field.rs`
-
-## Development
+## 🧪 Development
 
 ```bash
 # Build
 cargo build
 
-# Run example
-cargo run --example basic_migration
+# Run with example config
+cargo run --release -- run examples/config.json
 
-# Run tests
+# Run tests (when available)
 cargo test
 
-# Check compilation
+# Check code
 cargo check
 
 # Format code
 cargo fmt
 
-# Run clippy
+# Lint
 cargo clippy
 ```
 
-## License
+## 🏗️ Architecture
+
+### Type-Safe State Machine (Legacy)
+
+The original state machine is still used internally for the `run` command:
+
+```
+Uninitialized → [Merge/Load] → Validated → Enriched → Batched → Migrated → Completed
+```
+
+### Modern CLI Architecture
+
+Individual commands bypass the state machine for flexibility:
+- Direct operations for each stage
+- Independent execution
+- Config hash validation
+- State inference from output files
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests (when test infrastructure is ready)
+5. Submit a pull request
+
+## 📝 License
 
 [Your License Here]
+
+## 🆘 Support
+
+For issues, questions, or feature requests, please open an issue on the repository.
+
+---
+
+**Note**: This tool is designed for HyperSwitch payment method operations. Ensure you have proper authorization and understand the implications before running migrations or updates on production data.
