@@ -161,7 +161,6 @@ pub struct MigrationMetadata {
     pub network_transaction_id_migrated: bool,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailedMigration {
     pub line_number: LineNumber,

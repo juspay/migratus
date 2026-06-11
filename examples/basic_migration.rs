@@ -21,6 +21,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             batch_size: 100,
             resume_from_batch: None,
             resume_from_state: None,
+            parallel_uploads: 4,
+            max_file_size_bytes: 1_048_576,
+            retry_count: 0,
+            retry_backoff_ms: 1000,
         },
         output_config: OutputConfig {
             output_dir: PathBuf::from("output"),

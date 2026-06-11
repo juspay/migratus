@@ -11,15 +11,12 @@ pub fn calculate_config_hash(config_path: &Path) -> crate::error::Result<String>
 }
 
 /// Verify that a JSON file's config hash matches the current config
-pub fn verify_config_hash(
-    json_content: &str,
-    config_path: &Path,
-) -> crate::error::Result<bool> {
+pub fn verify_config_hash(json_content: &str, config_path: &Path) -> crate::error::Result<bool> {
     let current_hash = calculate_config_hash(config_path)?;
-    
+
     // Extract hash from JSON
     let json: serde_json::Value = serde_json::from_str(json_content)?;
-    
+
     if let Some(stored_hash) = json.get("config_hash").and_then(|h| h.as_str()) {
         Ok(stored_hash == current_hash)
     } else {

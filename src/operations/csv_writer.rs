@@ -13,12 +13,7 @@ impl CsvWriter {
     pub fn write_invalid_records(&self, path: &Path, records: &[InvalidRecord]) -> Result<()> {
         let mut writer = csv::Writer::from_path(path)?;
 
-        writer.write_record([
-            "line_number",
-            "invalid_reason",
-            "failed_at_state",
-            "data",
-        ])?;
+        writer.write_record(["line_number", "invalid_reason", "failed_at_state", "data"])?;
 
         for record in records {
             let data_json = serde_json::to_string(&record.original_data)?;
@@ -238,11 +233,7 @@ impl CsvWriter {
         Ok(())
     }
 
-    pub fn write_failed_updates(
-        &self,
-        path: &Path,
-        updates: &[FailedUpdate],
-    ) -> Result<()> {
+    pub fn write_failed_updates(&self, path: &Path, updates: &[FailedUpdate]) -> Result<()> {
         let mut writer = csv::Writer::from_path(path)?;
 
         writer.write_record([

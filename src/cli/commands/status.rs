@@ -1,5 +1,7 @@
 use crate::domain::config::MigrationConfig;
-use crate::utils::state::{infer_current_stage, get_completed_batches, get_total_batches, PipelineStage};
+use crate::utils::state::{
+    get_completed_batches, get_total_batches, infer_current_stage, PipelineStage,
+};
 use std::fs;
 use std::path::Path;
 
@@ -8,17 +10,17 @@ pub async fn handle_status(config_path: &Path) -> Result<(), Box<dyn std::error:
     let config_json = fs::read_to_string(config_path)?;
     let config: MigrationConfig = serde_json::from_str(&config_json)?;
     let output_dir = &config.output_config.output_dir;
-    
+
     // Infer current stage
     let current_stage = infer_current_stage(output_dir);
-    
+
     println!("📊 Pipeline Status");
     println!("==================\n");
-    
+
     // Show current stage
     println!("Current Stage: {}", current_stage.as_str());
     println!();
-    
+
     // Show progress for each stage
     println!("Progress:");
     show_stage_status(output_dir, PipelineStage::Load, &current_stage);
@@ -27,19 +29,20 @@ pub async fn handle_status(config_path: &Path) -> Result<(), Box<dyn std::error:
     show_stage_status(output_dir, PipelineStage::Batch, &current_stage);
     show_stage_status(output_dir, PipelineStage::Migrate, &current_stage);
     show_stage_status(output_dir, PipelineStage::Complete, &current_stage);
-    
+
     // Show next action
     println!();
     if current_stage == PipelineStage::Done {
         println!("✅ All stages complete!");
     } else {
         println!("Next Action:");
-        println!("  migratus {} {}", 
-            current_stage.as_str().to_lowercase(), 
+        println!(
+            "  migratus {} {}",
+            current_stage.as_str().to_lowercase(),
             config_path.display()
         );
     }
-    
+
     Ok(())
 }
 
@@ -51,9 +54,9 @@ fn show_stage_status(output_dir: &Path, stage: PipelineStage, current: &Pipeline
     } else {
         "⏸"
     };
-    
+
     let mut status_line = format!("  {} {}", symbol, stage.as_str());
-    
+
     // Add details for specific stages
     match stage {
         PipelineStage::Load => {
@@ -88,13 +91,17 @@ fn show_stage_status(output_dir: &Path, stage: PipelineStage, current: &Pipeline
             let total = get_total_batches(output_dir);
             let completed = get_completed_batches(output_dir);
             if total > 0 {
-                status_line.push_str(&format!(" - {}/{} batches migrated ({}%)", 
-                    completed.len(), total, (completed.len() * 100) / total));
+                status_line.push_str(&format!(
+                    " - {}/{} batches migrated ({}%)",
+                    completed.len(),
+                    total,
+                    (completed.len() * 100) / total
+                ));
             }
         }
         _ => {}
     }
-    
+
     println!("{}", status_line);
 }
 

@@ -24,6 +24,7 @@ pub enum MigrationFlow {
         required_fields: Vec<super::migration_field::MigrationField>,
         optional_fields: Vec<super::migration_field::MigrationField>,
     },
+    CustomerGlobalId,
     Update,
 }
 
@@ -50,6 +51,7 @@ impl MigrationFlow {
             Self::CustomMigrate {
                 required_fields, ..
             } => required_fields.clone(),
+            Self::CustomerGlobalId => vec![MF::MerchantId, MF::CustomerId],
             Self::Update => vec![MF::PaymentMethodId],
         }
     }
@@ -91,19 +93,24 @@ impl MigrationFlow {
             Self::CustomMigrate {
                 optional_fields, ..
             } => optional_fields.clone(),
+            Self::CustomerGlobalId => vec![],
             Self::Update => vec![],
         }
+    }
+
+    pub fn is_customer_global_id(&self) -> bool {
+        matches!(self, Self::CustomerGlobalId)
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum DataSource {
-    Merged { 
-        path: PathBuf 
+    Merged {
+        path: PathBuf,
     },
-    Separate { 
-        customer: PathBuf, 
+    Separate {
+        customer: PathBuf,
         payment: PathBuf,
         #[serde(default = "default_merge_field")]
         merge_on: super::migration_field::MigrationField,
@@ -152,9 +159,20 @@ impl ApiConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchConfig {
+    #[serde(default = "default_batch_size")]
     pub batch_size: usize,
+    #[serde(default)]
     pub resume_from_batch: Option<usize>,
+    #[serde(default)]
     pub resume_from_state: Option<String>,
+    #[serde(default = "default_parallel_uploads")]
+    pub parallel_uploads: usize,
+    #[serde(default = "default_max_file_size_bytes")]
+    pub max_file_size_bytes: usize,
+    #[serde(default)]
+    pub retry_count: usize,
+    #[serde(default = "default_retry_backoff_ms")]
+    pub retry_backoff_ms: u64,
 }
 
 impl BatchConfig {
@@ -165,6 +183,22 @@ impl BatchConfig {
     pub fn resume_from_batch(&self) -> Option<BatchNumber> {
         self.resume_from_batch.map(BatchNumber::new)
     }
+}
+
+fn default_batch_size() -> usize {
+    500
+}
+
+fn default_parallel_uploads() -> usize {
+    4
+}
+
+fn default_max_file_size_bytes() -> usize {
+    1_048_576
+}
+
+fn default_retry_backoff_ms() -> u64 {
+    1000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

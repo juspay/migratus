@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod complete;
+pub mod customer_global_id;
 pub mod enrich;
 pub mod load;
 pub mod migrate;
