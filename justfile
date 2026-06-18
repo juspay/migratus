@@ -8,9 +8,18 @@ clippy:
 fmt:
     cargo +nightly fmt --all
 
-# Install binary to ~/.cargo/bin
-install:
-    cargo install --path . --root ~/.cargo
+# Build release binaries, install migratus locally, and update ~/.cargo/bin
+install: build
+    cp target/release/migratus ./migratus
+    chmod +x ./migratus
+    mkdir -p ~/.cargo/bin
+    cp target/release/migratus ~/.cargo/bin/migratus
+    cp target/release/updatus ~/.cargo/bin/updatus
+    chmod +x ~/.cargo/bin/migratus ~/.cargo/bin/updatus
+
+# Quickly build debug binaries
+build-dev:
+    cargo build --bins
 
 # Run all checks (clippy + fmt check)
 check: clippy
@@ -18,7 +27,7 @@ check: clippy
 
 # Build release binary
 build:
-    cargo build --release
+    cargo build --release --bins
 
 # Run tests
 test:

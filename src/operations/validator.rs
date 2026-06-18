@@ -51,7 +51,7 @@ impl Validator {
                 return Err(InvalidReason::MissingRequiredField(field_name));
             }
         }
-        
+
         // For Update flow: ensure at least one optional update field is present
         if self.required_fields.len() == 1 && self.required_fields[0] == MF::PaymentMethodId {
             let optional_update_fields = [
@@ -62,13 +62,15 @@ impl Validator {
                 MF::PaymentInstrumentId,
                 MF::ConnectorCustomerId,
             ];
-            
+
             let has_update_field = optional_update_fields.iter().any(|field| {
-                record.data.get(&field.to_header_name())
+                record
+                    .data
+                    .get(&field.to_header_name())
                     .map(|v| !v.trim().is_empty())
                     .unwrap_or(false)
             });
-            
+
             if !has_update_field {
                 return Err(InvalidReason::MissingRequiredField(
                     "At least one update field (e.g., card_expiry_month, payment_instrument_id, connector_customer_id)".to_string()
@@ -149,7 +151,10 @@ impl Validator {
                     if !masked.is_empty() {
                         if let (Some(month), Some(year)) = (expiry_month, expiry_year) {
                             if !month.is_empty() && !year.is_empty() {
-                                keys.push(format!("raw|{}|{}|{}|{}|{}", customer_id, raw, masked, month, year));
+                                keys.push(format!(
+                                    "raw|{}|{}|{}|{}|{}",
+                                    customer_id, raw, masked, month, year
+                                ));
                             }
                         }
                     }

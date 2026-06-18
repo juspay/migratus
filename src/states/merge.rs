@@ -7,7 +7,11 @@ use crate::states::*;
 impl MigrationBuilder<MergeRequired> {
     pub async fn merge(mut self) -> Result<MigrationBuilder<Validated>> {
         let (customer_path, payment_path, merge_on) = match &self.config.data_source {
-            DataSource::Separate { customer, payment, merge_on } => (customer, payment, merge_on.clone()),
+            DataSource::Separate {
+                customer,
+                payment,
+                merge_on,
+            } => (customer, payment, merge_on.clone()),
             _ => {
                 return Err(MigrationError::InvalidStateTransition(
                     "MergeRequired state requires separate data sources".to_string(),

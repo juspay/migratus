@@ -40,12 +40,12 @@ impl PipelineStage {
 /// Infer the current pipeline stage based on existing output files
 pub fn infer_current_stage(output_dir: &Path) -> PipelineStage {
     // Check files in reverse order (most advanced stage first)
-    
+
     // Check if summary.json exists (DONE)
     if output_dir.join("summary.json").exists() {
         return PipelineStage::Done;
     }
-    
+
     // Check if batch_responses directory has files (COMPLETE ready)
     let batch_responses_dir = output_dir.join("batch_responses");
     if batch_responses_dir.exists() {
@@ -55,7 +55,7 @@ pub fn infer_current_stage(output_dir: &Path) -> PipelineStage {
             }
         }
     }
-    
+
     // Check if batches directory has files (MIGRATE ready)
     let batches_dir = output_dir.join("batches");
     if batches_dir.exists() {
@@ -65,22 +65,22 @@ pub fn infer_current_stage(output_dir: &Path) -> PipelineStage {
             }
         }
     }
-    
+
     // Check if enriched_records.json exists (BATCH ready)
     if output_dir.join("enriched_records.json").exists() {
         return PipelineStage::Batch;
     }
-    
+
     // Check if validated_records.json exists (ENRICH ready)
     if output_dir.join("validated_records.json").exists() {
         return PipelineStage::Enrich;
     }
-    
+
     // Check if merged_records.json exists (VALIDATE ready)
     if output_dir.join("merged_records.json").exists() {
         return PipelineStage::Validate;
     }
-    
+
     // Nothing exists - need to LOAD
     PipelineStage::Load
 }
@@ -89,7 +89,7 @@ pub fn infer_current_stage(output_dir: &Path) -> PipelineStage {
 pub fn get_completed_batches(output_dir: &Path) -> Vec<usize> {
     let batch_responses_dir = output_dir.join("batch_responses");
     let mut completed = Vec::new();
-    
+
     if let Ok(entries) = std::fs::read_dir(&batch_responses_dir) {
         for entry in entries.flatten() {
             if let Some(filename) = entry.file_name().to_str() {
@@ -103,7 +103,7 @@ pub fn get_completed_batches(output_dir: &Path) -> Vec<usize> {
             }
         }
     }
-    
+
     completed.sort();
     completed
 }
@@ -111,7 +111,7 @@ pub fn get_completed_batches(output_dir: &Path) -> Vec<usize> {
 /// Get total number of batches by checking batches directory
 pub fn get_total_batches(output_dir: &Path) -> usize {
     let batches_dir = output_dir.join("batches");
-    
+
     if let Ok(entries) = std::fs::read_dir(&batches_dir) {
         entries
             .flatten()
@@ -131,18 +131,18 @@ pub fn get_total_batches(output_dir: &Path) -> usize {
 pub fn get_next_batch_to_migrate(output_dir: &Path) -> usize {
     let completed = get_completed_batches(output_dir);
     let total = get_total_batches(output_dir);
-    
+
     if completed.is_empty() {
         return 1; // Start from batch 1
     }
-    
+
     // Find first missing batch
     for i in 1..=total {
         if !completed.contains(&i) {
             return i;
         }
     }
-    
+
     // All batches completed
     total + 1
 }

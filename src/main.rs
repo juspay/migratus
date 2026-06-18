@@ -17,12 +17,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(String::from)
         })
         .unwrap_or_else(|| "migratus".to_string());
-    
+
     let is_updatus = binary_name == "updatus";
-    
+
     // Try to parse as new CLI first, fall back to old behavior
     let args: Vec<String> = std::env::args().collect();
-    
+
     // If only 2 args and second is a file path (backward compatibility)
     if args.len() == 2 && !args[1].starts_with('-') && PathBuf::from(&args[1]).exists() {
         // Old behavior: migratus <config.json>
@@ -34,12 +34,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn route_command(command: Command, is_updatus: bool) -> Result<(), Box<dyn std::error::Error>> {
+async fn route_command(
+    command: Command,
+    is_updatus: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     // For updatus, only allow update-related commands
     if is_updatus {
         match &command {
-            Command::Update { .. } | Command::Load { .. } | Command::Validate { .. } 
-            | Command::Enrich { .. } | Command::Batch { .. } | Command::Complete { .. } 
+            Command::Update { .. }
+            | Command::Load { .. }
+            | Command::Validate { .. }
+            | Command::Enrich { .. }
+            | Command::Batch { .. }
+            | Command::Complete { .. }
             | Command::Status { .. } => {
                 // Allowed for updatus
             }
@@ -49,18 +56,17 @@ async fn route_command(command: Command, is_updatus: bool) -> Result<(), Box<dyn
                     match command {
                         Command::Migrate { .. } => "migrate",
                         Command::Run { .. } => "run",
-                        _ => "unknown"
+                        _ => "unknown",
                     }
-                ).into());
+                )
+                .into());
             }
         }
     }
-    
+
     match command {
         Command::Run { config } => run_all_stages(&config).await,
-        Command::Load { config } => {
-            migratus::cli::commands::handle_load(&config).await
-        }
+        Command::Load { config } => migratus::cli::commands::handle_load(&config).await,
         Command::Validate { config, force } => {
             migratus::cli::commands::handle_validate(&config, force).await
         }
@@ -70,18 +76,24 @@ async fn route_command(command: Command, is_updatus: bool) -> Result<(), Box<dyn
         Command::Batch { config, force } => {
             migratus::cli::commands::handle_batch(&config, force).await
         }
-        Command::Migrate { config, from_batch, count, all, force } => {
-            migratus::cli::commands::handle_migrate(&config, from_batch, count, all, force).await
-        }
-        Command::Update { config, from_batch, count, all, force } => {
-            migratus::cli::commands::handle_update(&config, from_batch, count, all, force).await
-        }
+        Command::Migrate {
+            config,
+            from_batch,
+            count,
+            all,
+            force,
+        } => migratus::cli::commands::handle_migrate(&config, from_batch, count, all, force).await,
+        Command::Update {
+            config,
+            from_batch,
+            count,
+            all,
+            force,
+        } => migratus::cli::commands::handle_update(&config, from_batch, count, all, force).await,
         Command::Complete { config, force } => {
             migratus::cli::commands::handle_complete(&config, force).await
         }
-        Command::Status { config } => {
-            migratus::cli::commands::handle_status(&config).await
-        }
+        Command::Status { config } => migratus::cli::commands::handle_status(&config).await,
     }
 }
 
@@ -95,9 +107,12 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
 
     // Determine if this is an update flow
     let is_update_flow = matches!(config.flow, migratus::domain::config::MigrationFlow::Update);
-    
+    let is_customer_flow = config.flow.is_customer_global_id();
+
     // Display appropriate header
-    if is_update_flow {
+    if is_customer_flow {
+        println!("🚀 Migratus - Customer Global ID Migration Tool");
+    } else if is_update_flow {
         println!("🔄 Updatus - Payment Method Update Tool");
     } else {
         println!("🚀 Migratus - Data Migration Tool");
@@ -138,12 +153,32 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
 
     // Display configuration summary
     println!("📊 Configuration Summary:");
-    println!("  - Flow type: {}", if is_update_flow { "Update" } else { "Migration" });
+    println!(
+        "  - Flow type: {}",
+        if is_customer_flow {
+            "Customer Global ID Migration"
+        } else if is_update_flow {
+            "Update"
+        } else {
+            "Migration"
+        }
+    );
     println!("  - Data source: {:?}", config.data_source);
     println!("  - Batch size: {}", config.batch_config.batch_size);
     println!("  - Output dir: {:?}", config.output_config.output_dir);
     println!("  - API endpoint: {}", config.api_config.endpoint);
     println!();
+
+    if is_customer_flow {
+        migratus::cli::commands::handle_load(config_path).await?;
+        migratus::cli::commands::handle_validate(config_path, false).await?;
+        migratus::cli::commands::handle_enrich(config_path, false).await?;
+        migratus::cli::commands::handle_batch(config_path, false).await?;
+        migratus::cli::commands::handle_migrate(config_path, None, 10, true, false).await?;
+        migratus::cli::commands::handle_complete(config_path, false).await?;
+        println!("\n🎉 Customer global ID migration pipeline complete!");
+        return Ok(());
+    }
 
     // Initialize pipeline
     if is_update_flow {
@@ -177,14 +212,14 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
     // Step 3: Enrich
     println!("➕ Step 3/7: Enriching records...");
     let mut columns = migratus::domain::config::EnrichmentColumns::new();
-    
+
     // Add enrichment columns from config
     if let Some(enrichment) = &enriched.config.enrichment {
         for (key, value) in enrichment {
             columns.add(key.clone(), value.clone());
         }
     }
-    
+
     let batched = enriched.enrich(columns).await?;
     println!("✓ Enrichment complete\n");
 
@@ -231,7 +266,7 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
         "Total input records:       {}",
         output.summary.total_input_records
     );
-    
+
     if is_update_flow {
         println!(
             "Valid for update:          {}",
@@ -267,7 +302,7 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
             output.summary.failed_migrations
         );
     }
-    
+
     println!(
         "Total output records:      {}",
         output.summary.total_output_records
@@ -286,7 +321,7 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
 
     // Display output files
     println!("📁 Output Files:");
-    
+
     if is_update_flow {
         println!(
             "  ✓ {}/successful_updates.csv ({} records)",
@@ -306,7 +341,7 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
             output.summary.total_output_records, output.summary.failed_migrations
         );
     }
-    
+
     println!(
         "  ✓ {}/invalid_records.csv ({} records)",
         output.summary.total_output_records, output.summary.invalid_pre_migration

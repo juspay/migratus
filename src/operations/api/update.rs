@@ -1,5 +1,5 @@
-use crate::domain::{
-    update::{FailedUpdate, SuccessfulUpdate, UpdateBatch, UpdateFailureReason, UpdateMetadata},
+use crate::domain::update::{
+    FailedUpdate, SuccessfulUpdate, UpdateBatch, UpdateFailureReason, UpdateMetadata,
 };
 use crate::error::*;
 use reqwest::multipart;

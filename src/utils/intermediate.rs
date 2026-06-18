@@ -17,7 +17,7 @@ impl<T> IntermediateOutput<T> {
     pub fn new(config_hash: String, records: Vec<T>) -> Self {
         let record_count = records.len();
         let timestamp = chrono::Utc::now().to_rfc3339();
-        
+
         Self {
             config_hash,
             timestamp,
