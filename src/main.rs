@@ -108,10 +108,13 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
     // Determine if this is an update flow
     let is_update_flow = matches!(config.flow, migratus::domain::config::MigrationFlow::Update);
     let is_customer_flow = config.flow.is_customer_global_id();
+    let is_fingerprint_flow = config.flow.is_payment_method_fingerprint_id();
 
     // Display appropriate header
     if is_customer_flow {
         println!("🚀 Migratus - Customer Global ID Migration Tool");
+    } else if is_fingerprint_flow {
+        println!("🚀 Migratus - Payment Method Fingerprint ID Migration Tool");
     } else if is_update_flow {
         println!("🔄 Updatus - Payment Method Update Tool");
     } else {
@@ -157,6 +160,8 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
         "  - Flow type: {}",
         if is_customer_flow {
             "Customer Global ID Migration"
+        } else if is_fingerprint_flow {
+            "Payment Method Fingerprint ID Migration"
         } else if is_update_flow {
             "Update"
         } else {
@@ -177,6 +182,17 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
         migratus::cli::commands::handle_migrate(config_path, None, 10, true, false).await?;
         migratus::cli::commands::handle_complete(config_path, false).await?;
         println!("\n🎉 Customer global ID migration pipeline complete!");
+        return Ok(());
+    }
+
+    if is_fingerprint_flow {
+        migratus::cli::commands::handle_load(config_path).await?;
+        migratus::cli::commands::handle_validate(config_path, false).await?;
+        migratus::cli::commands::handle_enrich(config_path, false).await?;
+        migratus::cli::commands::handle_batch(config_path, false).await?;
+        migratus::cli::commands::handle_migrate(config_path, None, 10, true, false).await?;
+        migratus::cli::commands::handle_complete(config_path, false).await?;
+        println!("\n🎉 Payment method fingerprint ID migration pipeline complete!");
         return Ok(());
     }
 
@@ -215,8 +231,8 @@ async fn run_all_stages(config_path: &PathBuf) -> Result<(), Box<dyn std::error:
 
     // Add enrichment columns from config
     if let Some(enrichment) = &enriched.config.enrichment {
-        for (key, value) in enrichment {
-            columns.add(key.clone(), value.clone());
+        for (key, value) in enrichment.string_columns() {
+            columns.add(key.clone(), value.to_string());
         }
     }
 

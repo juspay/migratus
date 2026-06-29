@@ -33,6 +33,18 @@ pub async fn handle_migrate(
         )
         .await;
     }
+    if crate::cli::commands::payment_method_fingerprint_id::is_payment_method_fingerprint_id_config(
+        &config,
+    ) {
+        return crate::cli::commands::payment_method_fingerprint_id::handle_migrate(
+            config_path,
+            from_batch,
+            count,
+            all,
+            force,
+        )
+        .await;
+    }
 
     // Verify enriched records exist and hash matches
     let enriched_path = config
@@ -97,7 +109,7 @@ pub async fn handle_migrate(
     let api_client = ApiClient::new(
         config.api_config.endpoint.clone(),
         config.api_config.api_key.clone(),
-        config.api_config.merchant_id.clone(),
+        config.api_config.required_merchant_id()?,
         config.api_config.merchant_connector_ids.clone(),
         config.api_config.timeout(),
     )?;

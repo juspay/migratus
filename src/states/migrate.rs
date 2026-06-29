@@ -15,7 +15,10 @@ impl MigrationBuilder<Migrated> {
         let api_client = ApiClient::new(
             self.config.api_config.endpoint.clone(),
             self.config.api_config.api_key.clone(),
-            self.config.api_config.merchant_id.clone(),
+            self.config
+                .api_config
+                .required_merchant_id()
+                .map_err(MigrationError::ConfigError)?,
             self.config.api_config.merchant_connector_ids.clone(),
             self.config.api_config.timeout(),
         )?;

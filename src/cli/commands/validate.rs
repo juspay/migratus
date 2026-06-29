@@ -21,6 +21,15 @@ pub async fn handle_validate(
     if crate::cli::commands::customer_global_id::is_customer_global_id_config(&config) {
         return crate::cli::commands::customer_global_id::handle_validate(config_path, force).await;
     }
+    if crate::cli::commands::payment_method_fingerprint_id::is_payment_method_fingerprint_id_config(
+        &config,
+    ) {
+        return crate::cli::commands::payment_method_fingerprint_id::handle_validate(
+            config_path,
+            force,
+        )
+        .await;
+    }
 
     // Read merged records
     let merged_path = config.output_config.output_dir.join("merged_records.json");
