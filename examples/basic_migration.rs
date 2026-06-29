@@ -13,8 +13,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         api_config: ApiConfig {
             endpoint: "https://api.example.com/migrate".to_string(),
             api_key: "your_api_key_here".to_string(),
-            merchant_id: "merchant_123".to_string(),
+            merchant_id: Some("merchant_123".to_string()),
             merchant_connector_ids: Some("mca_456".to_string()),
+            headers: std::collections::HashMap::new(),
             timeout_secs: 30,
         },
         batch_config: BatchConfig {

@@ -20,6 +20,15 @@ pub async fn handle_batch(
     if crate::cli::commands::customer_global_id::is_customer_global_id_config(&config) {
         return crate::cli::commands::customer_global_id::handle_batch(config_path, force).await;
     }
+    if crate::cli::commands::payment_method_fingerprint_id::is_payment_method_fingerprint_id_config(
+        &config,
+    ) {
+        return crate::cli::commands::payment_method_fingerprint_id::handle_batch(
+            config_path,
+            force,
+        )
+        .await;
+    }
 
     // Read enriched records
     let enriched_path = config

@@ -12,7 +12,34 @@ pub struct MigrationConfig {
     pub batch_config: BatchConfig,
     pub output_config: OutputConfig,
     #[serde(default)]
-    pub enrichment: Option<HashMap<String, String>>,
+    pub enrichment: Option<EnrichmentConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EnrichmentConfig {
+    #[serde(flatten)]
+    pub values: HashMap<String, serde_json::Value>,
+}
+
+impl EnrichmentConfig {
+    pub fn string_columns(&self) -> impl Iterator<Item = (&String, &str)> {
+        self.values
+            .iter()
+            .filter(|(key, _)| key.as_str() != "already_migrated")
+            .filter_map(|(key, value)| value.as_str().map(|value| (key, value)))
+    }
+
+    pub fn already_migrated(&self) -> Option<AlreadyMigratedConfig> {
+        self.values
+            .get("already_migrated")
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlreadyMigratedConfig {
+    pub path: PathBuf,
+    pub match_fields: Vec<super::migration_field::MigrationField>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +52,11 @@ pub enum MigrationFlow {
         optional_fields: Vec<super::migration_field::MigrationField>,
     },
     CustomerGlobalId,
+    #[serde(
+        rename = "payment_method_fingerprint",
+        alias = "payment_method_fingerprint_id"
+    )]
+    PaymentMethodFingerprintId,
     Update,
 }
 
@@ -52,6 +84,7 @@ impl MigrationFlow {
                 required_fields, ..
             } => required_fields.clone(),
             Self::CustomerGlobalId => vec![MF::MerchantId, MF::CustomerId],
+            Self::PaymentMethodFingerprintId => vec![MF::MerchantId, MF::PaymentMethodId],
             Self::Update => vec![MF::PaymentMethodId],
         }
     }
@@ -94,12 +127,17 @@ impl MigrationFlow {
                 optional_fields, ..
             } => optional_fields.clone(),
             Self::CustomerGlobalId => vec![],
+            Self::PaymentMethodFingerprintId => vec![],
             Self::Update => vec![],
         }
     }
 
     pub fn is_customer_global_id(&self) -> bool {
         matches!(self, Self::CustomerGlobalId)
+    }
+
+    pub fn is_payment_method_fingerprint_id(&self) -> bool {
+        matches!(self, Self::PaymentMethodFingerprintId)
     }
 }
 
@@ -125,8 +163,11 @@ fn default_merge_field() -> super::migration_field::MigrationField {
 pub struct ApiConfig {
     pub endpoint: String,
     pub api_key: String,
-    pub merchant_id: String,
+    #[serde(default)]
+    pub merchant_id: Option<String>,
     pub merchant_connector_ids: Option<String>,
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
 }
@@ -148,12 +189,25 @@ impl ApiConfig {
         ApiKey::new(self.api_key.clone())
     }
 
-    pub fn merchant_id(&self) -> MerchantId {
-        MerchantId::new(self.merchant_id.clone())
+    pub fn merchant_id(&self) -> Option<MerchantId> {
+        self.merchant_id.clone().map(MerchantId::new)
+    }
+
+    pub fn required_merchant_id(&self) -> std::result::Result<String, String> {
+        self.merchant_id
+            .as_ref()
+            .map(|merchant_id| merchant_id.trim())
+            .filter(|merchant_id| !merchant_id.is_empty())
+            .map(String::from)
+            .ok_or_else(|| "api_config.merchant_id is required for this flow".to_string())
     }
 
     pub fn merchant_connector_ids(&self) -> Option<String> {
         self.merchant_connector_ids.clone()
+    }
+
+    pub fn headers(&self) -> HashMap<String, String> {
+        self.headers.clone()
     }
 }
 
@@ -251,5 +305,48 @@ impl EnrichmentColumns {
 impl Default for EnrichmentColumns {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_payment_method_fingerprint_flow_name_and_alias() {
+        let flow: MigrationFlow =
+            serde_json::from_str(r#"{"type":"payment_method_fingerprint"}"#).unwrap();
+        assert!(flow.is_payment_method_fingerprint_id());
+
+        let alias: MigrationFlow =
+            serde_json::from_str(r#"{"type":"payment_method_fingerprint_id"}"#).unwrap();
+        assert!(alias.is_payment_method_fingerprint_id());
+    }
+
+    #[test]
+    fn api_merchant_id_is_optional_but_validated_when_required() {
+        let config: ApiConfig = serde_json::from_str(
+            r#"{
+                "endpoint": "https://example.com",
+                "api_key": "secret",
+                "merchant_connector_ids": null
+            }"#,
+        )
+        .unwrap();
+
+        assert!(config.merchant_id().is_none());
+        assert!(config.required_merchant_id().is_err());
+
+        let config: ApiConfig = serde_json::from_str(
+            r#"{
+                "endpoint": "https://example.com",
+                "api_key": "secret",
+                "merchant_id": "merchant_123",
+                "merchant_connector_ids": null
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.required_merchant_id().unwrap(), "merchant_123");
     }
 }

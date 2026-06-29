@@ -22,6 +22,11 @@ pub async fn handle_load(config_path: &Path) -> Result<(), Box<dyn std::error::E
     if crate::cli::commands::customer_global_id::is_customer_global_id_config(&config) {
         return crate::cli::commands::customer_global_id::handle_load(config_path).await;
     }
+    if crate::cli::commands::payment_method_fingerprint_id::is_payment_method_fingerprint_id_config(
+        &config,
+    ) {
+        return crate::cli::commands::payment_method_fingerprint_id::handle_load(config_path).await;
+    }
 
     // Ensure output directory exists
     fs::create_dir_all(&config.output_config.output_dir)?;

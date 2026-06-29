@@ -1,4 +1,4 @@
-use crate::domain::config::{DataSource, MigrationConfig};
+use crate::domain::config::{AlreadyMigratedConfig, DataSource, MigrationConfig};
 use crate::domain::customer_global_id::{
     loaded_record_from_csv, records_to_csv_bytes, split_records_into_batches, validate_headers,
     validate_loaded_record, CustomerGlobalIdApiResponse, CustomerGlobalIdBatchFile,
@@ -9,7 +9,8 @@ use crate::domain::customer_global_id::{
 use crate::operations::api::CustomerGlobalIdApiClient;
 use crate::utils::hash::{calculate_config_hash, verify_config_hash};
 use crate::utils::intermediate::IntermediateOutput;
-use std::collections::BTreeMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,6 +19,16 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 const INVALID_RECORDS_JSON: &str = "invalid_records.json";
+const SKIPPED_RECORDS_JSON: &str = "skipped_records.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SkippedCustomerGlobalIdRecord {
+    line_number: crate::domain::types::LineNumber,
+    merchant_id: crate::domain::types::MerchantId,
+    customer_id: crate::domain::types::CustomerId,
+    original_data: std::collections::HashMap<String, String>,
+    skip_reason: String,
+}
 
 #[derive(Debug, Clone)]
 struct CustomerGlobalIdFailedOutputRecord {
@@ -177,17 +188,28 @@ pub async fn handle_enrich(
 
     let validated_output: IntermediateOutput<CustomerGlobalIdMigrationRecord> =
         serde_json::from_str(&validated_json)?;
-    let output = IntermediateOutput::new(
-        calculate_config_hash(config_path)?,
-        validated_output.records,
-    );
+    let (records_for_migration, skipped_records) =
+        filter_already_migrated_records(&config, validated_output.records)?;
+    if !skipped_records.is_empty() {
+        write_skipped_records_json_and_csv(&config, config_path, &skipped_records)?;
+    }
+
+    let output =
+        IntermediateOutput::new(calculate_config_hash(config_path)?, records_for_migration);
     let output_path = config
         .output_config
         .output_dir
         .join("enriched_records.json");
     fs::write(&output_path, serde_json::to_string_pretty(&output)?)?;
 
-    println!("ℹ️  No enrichment required for customer global ID migration");
+    if !skipped_records.is_empty() {
+        println!(
+            "ℹ️  Filtered {} already migrated customer global ID records",
+            skipped_records.len()
+        );
+    } else {
+        println!("ℹ️  No enrichment required for customer global ID migration");
+    }
     println!("💾 Output saved:");
     println!("  → {}", output_path.display());
     println!("  → {} records", output.record_count);
@@ -600,6 +622,134 @@ fn ensure_customer_flow(config: &MigrationConfig) -> Result<(), Box<dyn std::err
     }
 }
 
+fn filter_already_migrated_records(
+    config: &MigrationConfig,
+    records: Vec<CustomerGlobalIdMigrationRecord>,
+) -> Result<
+    (
+        Vec<CustomerGlobalIdMigrationRecord>,
+        Vec<SkippedCustomerGlobalIdRecord>,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    let Some(already_migrated_config) = config
+        .enrichment
+        .as_ref()
+        .and_then(|enrichment| enrichment.already_migrated())
+    else {
+        return Ok((records, Vec::new()));
+    };
+
+    if already_migrated_config.match_fields.is_empty() {
+        return Err("enrichment.already_migrated.match_fields must not be empty".into());
+    }
+
+    let match_fields: Vec<String> = already_migrated_config
+        .match_fields
+        .iter()
+        .map(|field| field.to_header_name())
+        .collect();
+    let already_migrated = read_already_migrated_keys(&already_migrated_config, &match_fields)?;
+    if already_migrated.is_empty() {
+        return Ok((records, Vec::new()));
+    }
+
+    let mut kept = Vec::new();
+    let mut skipped = Vec::new();
+
+    for record in records {
+        let key = customer_global_id_record_key(&record, &match_fields);
+        if key
+            .as_ref()
+            .map(|key| already_migrated.contains(key))
+            .unwrap_or(false)
+        {
+            skipped.push(SkippedCustomerGlobalIdRecord {
+                line_number: record.line_number,
+                merchant_id: record.merchant_id,
+                customer_id: record.customer_id,
+                original_data: record.original_data,
+                skip_reason: "already_migrated".to_string(),
+            });
+        } else {
+            kept.push(record);
+        }
+    }
+
+    Ok((kept, skipped))
+}
+
+fn read_already_migrated_keys(
+    config: &AlreadyMigratedConfig,
+    match_fields: &[String],
+) -> Result<HashSet<String>, Box<dyn std::error::Error>> {
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_path(&config.path)?;
+    let mut keys = HashSet::new();
+    let mut field_indexes: Option<Vec<usize>> = None;
+
+    for (row_index, result) in reader.records().enumerate() {
+        let record = result?;
+        if record.is_empty() {
+            continue;
+        }
+
+        if row_index == 0 {
+            let header_indexes: Option<Vec<usize>> = match_fields
+                .iter()
+                .map(|field| record.iter().position(|value| value.trim() == field))
+                .collect();
+            if let Some(indexes) = header_indexes {
+                field_indexes = Some(indexes);
+                continue;
+            }
+        }
+
+        let indexes = field_indexes
+            .clone()
+            .unwrap_or_else(|| (0..match_fields.len()).collect());
+        let values: Option<Vec<String>> = indexes
+            .iter()
+            .map(|index| record.get(*index).map(|value| value.trim().to_string()))
+            .collect();
+
+        if let Some(values) = values {
+            if values.iter().all(|value| !value.is_empty()) {
+                keys.insert(values.join("\u{1f}"));
+            }
+        }
+    }
+
+    Ok(keys)
+}
+
+fn customer_global_id_record_key(
+    record: &CustomerGlobalIdMigrationRecord,
+    match_fields: &[String],
+) -> Option<String> {
+    let values: Option<Vec<String>> = match_fields
+        .iter()
+        .map(|field| {
+            match field.as_str() {
+                "merchant_id" => Some(record.merchant_id.inner().to_string()),
+                "customer_id" => Some(record.customer_id.inner().to_string()),
+                _ => record.original_data.get(field).cloned(),
+            }
+            .map(|value| value.trim().to_string())
+        })
+        .collect();
+
+    values.and_then(|values| {
+        if values.iter().all(|value| !value.is_empty()) {
+            Some(values.join("\u{1f}"))
+        } else {
+            None
+        }
+    })
+}
+
 fn write_invalid_records_json_and_csv(
     config: &MigrationConfig,
     config_path: &Path,
@@ -614,6 +764,40 @@ fn write_invalid_records_json_and_csv(
         &config.output_config.output_dir.join("invalid_records.csv"),
         records,
     )?;
+    Ok(())
+}
+
+fn write_skipped_records_json_and_csv(
+    config: &MigrationConfig,
+    config_path: &Path,
+    records: &[SkippedCustomerGlobalIdRecord],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let output = IntermediateOutput::new(calculate_config_hash(config_path)?, records.to_vec());
+    fs::write(
+        config.output_config.output_dir.join(SKIPPED_RECORDS_JSON),
+        serde_json::to_string_pretty(&output)?,
+    )?;
+
+    let mut writer =
+        csv::Writer::from_path(config.output_config.output_dir.join("skipped_records.csv"))?;
+    writer.write_record([
+        "line_number",
+        "merchant_id",
+        "customer_id",
+        "skip_reason",
+        "data",
+    ])?;
+    for record in records {
+        writer.write_record([
+            record.line_number.value().to_string(),
+            record.merchant_id.inner().to_string(),
+            record.customer_id.inner().to_string(),
+            record.skip_reason.clone(),
+            serde_json::to_string(&record.original_data)?,
+        ])?;
+    }
+    writer.flush()?;
+
     Ok(())
 }
 

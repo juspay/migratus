@@ -4,6 +4,7 @@ pub mod customer_global_id;
 pub mod enrich;
 pub mod load;
 pub mod migrate;
+pub mod payment_method_fingerprint_id;
 pub mod status;
 pub mod update;
 pub mod validate;

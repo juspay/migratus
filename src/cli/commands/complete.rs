@@ -28,6 +28,12 @@ pub async fn handle_complete(
     if crate::cli::commands::customer_global_id::is_customer_global_id_config(&config) {
         return crate::cli::commands::customer_global_id::handle_complete(config_path).await;
     }
+    if crate::cli::commands::payment_method_fingerprint_id::is_payment_method_fingerprint_id_config(
+        &config,
+    ) {
+        return crate::cli::commands::payment_method_fingerprint_id::handle_complete(config_path)
+            .await;
+    }
 
     // Route based on flow type
     match config.flow {

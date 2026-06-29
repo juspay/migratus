@@ -86,7 +86,7 @@ pub async fn handle_update(
     let api_client = UpdateApiClient::new(
         config.api_config.endpoint.clone(),
         config.api_config.api_key.clone(),
-        config.api_config.merchant_id.clone(),
+        config.api_config.required_merchant_id()?,
         config.api_config.merchant_connector_ids.clone(),
         config.api_config.timeout(),
     )?;
